@@ -4,3 +4,8 @@ out
 .DS_Store
 .eslintcache
 *.log*
+.venv
+.python-build
+python-dist
+__pycache__
+*.py[cod]

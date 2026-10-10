@@ -1,4 +1,4 @@
-appId: com.electron.app
+appId: com.gr.stubuddy
 productName: gr-stubuddy
 directories:
   buildResources: build
@@ -9,8 +9,13 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{backend,scripts,.venv,.python-build,python-dist}/**'
+  - '!requirements*.txt'
 asarUnpack:
   - resources/**
+extraResources:
+  - from: python-dist
+    to: backend
 win:
   executableName: gr-stubuddy
 nsis:
@@ -29,6 +34,7 @@ mac:
 dmg:
   artifactName: ${name}-${version}.${ext}
 linux:
+  syncDesktopName: true
   target:
     - AppImage
     - snap

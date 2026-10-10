@@ -1,8 +1,43 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
-// Custom APIs for renderer
-const api = {}
+interface WorkspaceState {
+  targetFolder: string | null
+  currentProject: string | null
+  shortcutAvailable: boolean
+}
+
+interface WorkspaceActionResult {
+  status: 'success' | 'cancelled' | 'busy'
+  state: WorkspaceState
+  message?: string
+  path?: string
+}
+
+interface WorkspaceEvent {
+  type: 'state' | 'capture' | 'error'
+  state: WorkspaceState
+  message?: string
+  path?: string
+}
+
+const api = {
+  getWorkspaceState: (): Promise<WorkspaceState> =>
+    ipcRenderer.invoke('stubuddy:get-workspace-state'),
+  createWorkspace: (): Promise<WorkspaceActionResult> =>
+    ipcRenderer.invoke('stubuddy:create-workspace'),
+  createProject: (): Promise<WorkspaceActionResult> =>
+    ipcRenderer.invoke('stubuddy:create-project'),
+  capture: (): Promise<WorkspaceActionResult> => ipcRenderer.invoke('stubuddy:capture'),
+  openCurrentProject: (): Promise<WorkspaceActionResult> =>
+    ipcRenderer.invoke('stubuddy:open-current-project'),
+  onWorkspaceEvent: (callback: (event: WorkspaceEvent) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, event: WorkspaceEvent): void =>
+      callback(event)
+    ipcRenderer.on('stubuddy:workspace-event', listener)
+    return () => ipcRenderer.removeListener('stubuddy:workspace-event', listener)
+  }
+}
 
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise

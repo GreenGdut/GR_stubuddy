@@ -12,6 +12,18 @@ An Electron application with Vue and TypeScript
 
 ```bash
 $ npm install
+$ npm run python:setup
+```
+
+The Python environment is project-local. It provides the screenshot backend and PyInstaller used by
+the packaging commands.
+
+### Test
+
+```bash
+$ npm run lint
+$ npm run typecheck
+$ npm run test:python
 ```
 
 ### Development
@@ -21,6 +33,9 @@ $ npm run dev
 ```
 
 ### Build
+
+Packaging builds the Python backend before electron-builder runs. Build each platform package on its
+target operating system because PyInstaller does not cross-compile.
 
 ```bash
 # For windows
