@@ -6,6 +6,14 @@ import { disposeWorkspace, initializeWorkspace, setWorkspaceWindow } from './wor
 
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal')
+  if (
+    process.env.XDG_SESSION_TYPE === 'wayland' &&
+    process.env.XDG_CURRENT_DESKTOP?.toLowerCase().includes('gnome') &&
+    process.env.DISPLAY
+  ) {
+    // Ubuntu 24.04's GNOME portal does not expose GlobalShortcuts; XWayland can still grab it.
+    app.commandLine.appendSwitch('ozone-platform', 'x11')
+  }
 }
 
 function createWindow(): BrowserWindow {
