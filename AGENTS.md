@@ -35,3 +35,12 @@
 - The current window deliberately uses `sandbox: false`. Do not change that security boundary without checking preload compatibility.
 - External links are denied as new app windows and opened through `shell.openExternal`.
 - `package.json` and `electron-builder.yml` still contain template values such as `example.com` and the example update URL. Do not treat them as approved release settings.
+
+## Linux Wayland Behavior
+
+- The workspace and screenshot flow was manually accepted on Ubuntu 24.04, GNOME Shell 46, and Wayland on 2026-10-10.
+- Keep Electron on native Wayland. Do not force XWayland: it did not make global shortcut registration available and caused `XGetWindowAttributes failed for window 1` and GPU-process errors.
+- `backend/capture_wayland.py` deliberately uses local D-Bus introspection definitions. System portal introspection on the accepted environment contains the invalid member name `power-saver-enabled`, which `dbus-next` rejects.
+- GNOME's version 2 Screenshot Portal may complete an interactive screenshot without returning the required `uri`; it saves the image under the XDG pictures directory's `Screenshots/` folder instead. The backend snapshots that folder before capture and copies only the newly created or changed PNG into the current project as `input_NNN.png`.
+- The accepted GNOME portal does not expose `org.freedesktop.portal.GlobalShortcuts`, so Electron global shortcut registration is unavailable in that environment. Preserve the clickable screenshot-card fallback unless shortcut support is redesigned for this desktop.
+- Temporary Electron and Python diagnostics append to `/tmp/stubuddy/log`; logging failures must never break application actions.
