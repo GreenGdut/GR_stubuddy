@@ -6,95 +6,85 @@ import uuid
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from dbus_next import Message, MessageType, Variant
+from dbus_next import Variant
 from dbus_next.aio import MessageBus
+from dbus_next.introspection import Node
 
 
 PORTAL_BUS_NAME = "org.freedesktop.portal.Desktop"
 PORTAL_OBJECT_PATH = "/org/freedesktop/portal/desktop"
 SCREENSHOT_INTERFACE = "org.freedesktop.portal.Screenshot"
 REQUEST_INTERFACE = "org.freedesktop.portal.Request"
-DBUS_BUS_NAME = "org.freedesktop.DBus"
-DBUS_OBJECT_PATH = "/org/freedesktop/DBus"
-DBUS_INTERFACE = "org.freedesktop.DBus"
-
-
-def _method_result(reply: Message | None, operation: str) -> list[object]:
-    if reply is None:
-        raise RuntimeError(f"{operation}未返回结果")
-    if reply.message_type == MessageType.ERROR:
-        detail = str(reply.body[0]) if reply.body else reply.error_name
-        raise RuntimeError(f"{operation}失败: {detail}")
-    if reply.message_type != MessageType.METHOD_RETURN:
-        raise RuntimeError(f"{operation}未返回有效结果")
-    return reply.body
+PORTAL_INTROSPECTION = Node.parse(
+    """
+    <node>
+      <interface name="org.freedesktop.portal.Screenshot">
+        <method name="Screenshot">
+          <arg type="s" direction="in"/>
+          <arg type="a{sv}" direction="in"/>
+          <arg type="o" direction="out"/>
+        </method>
+      </interface>
+    </node>
+    """
+)
+REQUEST_INTROSPECTION = Node.parse(
+    """
+    <node>
+      <interface name="org.freedesktop.portal.Request">
+        <signal name="Response">
+          <arg type="u"/>
+          <arg type="a{sv}"/>
+        </signal>
+      </interface>
+    </node>
+    """
+)
 
 
 async def _request_screenshot() -> Path | None:
     bus = await MessageBus().connect()
     try:
+        if not bus.unique_name:
+            raise RuntimeError("无法获取 Wayland D-Bus 会话名称")
+        token = f"stubuddy_{uuid.uuid4().hex}"
+        sender = bus.unique_name.lstrip(":").replace(".", "_")
+        expected_request_path = (
+            f"/org/freedesktop/portal/desktop/request/{sender}/{token}"
+        )
         response_future: asyncio.Future[tuple[int, dict[str, Variant]]] = (
             asyncio.get_running_loop().create_future()
         )
-        request_path: str | None = None
-        pending_responses: dict[str, tuple[int, dict[str, Variant]]] = {}
 
-        def on_message(message: Message) -> None:
-            if (
-                message.message_type != MessageType.SIGNAL
-                or message.interface != REQUEST_INTERFACE
-                or message.member != "Response"
-                or message.path is None
-                or len(message.body) != 2
-            ):
-                return
-            response = (int(message.body[0]), message.body[1])
-            if message.path == request_path and not response_future.done():
-                response_future.set_result(response)
-            else:
-                pending_responses[message.path] = response
-
-        bus.add_message_handler(on_message)
-        match_reply = await bus.call(
-            Message(
-                destination=DBUS_BUS_NAME,
-                path=DBUS_OBJECT_PATH,
-                interface=DBUS_INTERFACE,
-                member="AddMatch",
-                signature="s",
-                body=[
-                    "type='signal',interface='org.freedesktop.portal.Request',"
-                    "member='Response'"
-                ],
-            )
+        request_object = bus.get_proxy_object(
+            PORTAL_BUS_NAME, expected_request_path, REQUEST_INTROSPECTION
         )
-        _method_result(match_reply, "监听 Wayland 截图门户")
+        request_interface = request_object.get_interface(REQUEST_INTERFACE)
 
-        screenshot_reply = await bus.call(
-            Message(
-                destination=PORTAL_BUS_NAME,
-                path=PORTAL_OBJECT_PATH,
-                interface=SCREENSHOT_INTERFACE,
-                member="Screenshot",
-                signature="sa{sv}",
-                body=[
-                    "",
-                    {
-                        "handle_token": Variant(
-                            "s", f"stubuddy_{uuid.uuid4().hex}"
-                        ),
-                        "interactive": Variant("b", True),
-                    },
-                ],
-            )
+        def on_response(response: int, results: dict[str, Variant]) -> None:
+            if not response_future.done():
+                response_future.set_result((response, results))
+
+        request_interface.on_response(on_response)
+
+        portal_object = bus.get_proxy_object(
+            PORTAL_BUS_NAME, PORTAL_OBJECT_PATH, PORTAL_INTROSPECTION
         )
-        screenshot_result = _method_result(screenshot_reply, "调用 Wayland 截图门户")
-        if len(screenshot_result) != 1 or not isinstance(screenshot_result[0], str):
-            raise RuntimeError("Wayland 截图门户返回了无效请求路径")
-        request_path = screenshot_result[0]
-        if request_path in pending_responses:
-            response_future.set_result(pending_responses[request_path])
-        response, results = await response_future
+        screenshot_interface = portal_object.get_interface(SCREENSHOT_INTERFACE)
+        request_path = await screenshot_interface.call_screenshot(
+            "",
+            {
+                "handle_token": Variant("s", token),
+                "interactive": Variant("b", True),
+            },
+        )
+        if request_path != expected_request_path:
+            raise RuntimeError("Wayland 截图门户返回了非预期请求路径")
+
+        try:
+            response, results = await asyncio.wait_for(response_future, timeout=300)
+        except TimeoutError as error:
+            raise RuntimeError("等待 Wayland 截图门户响应超时") from error
         if response == 1:
             return None
         if response != 0 or "uri" not in results:

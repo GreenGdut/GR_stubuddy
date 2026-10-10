@@ -33,6 +33,7 @@ export interface WorkspaceEvent {
 }
 
 const SHORTCUT = 'Control+Alt+A'
+const SHORTCUT_PROBE = 'Control+Alt+Shift+F11'
 const CONFIG_FILE = 'workspace.json'
 const DEBUG_LOG_FILE = '/tmp/stubuddy/log'
 
@@ -284,7 +285,16 @@ export async function initializeWorkspace(window: BrowserWindow): Promise<void> 
     void wrapAction(capture)()
   })
   if (!state.shortcutAvailable) {
-    writeDebugError('全局快捷键注册失败', `快捷键 ${SHORTCUT} 可能已被占用或门户拒绝`)
+    const probeAvailable = globalShortcut.register(SHORTCUT_PROBE, () => undefined)
+    if (probeAvailable) globalShortcut.unregister(SHORTCUT_PROBE)
+    writeDebugError(
+      '全局快捷键注册失败',
+      `快捷键 ${SHORTCUT} 可能已被占用或后端拒绝`,
+      `诊断快捷键 ${SHORTCUT_PROBE}: ${probeAvailable ? '注册成功' : '注册失败'}\n` +
+        `会话类型: ${process.env.XDG_SESSION_TYPE || '未知'}\n` +
+        `Wayland: ${process.env.WAYLAND_DISPLAY || '无'}\n` +
+        `X11: ${process.env.DISPLAY || '无'}`
+    )
   }
   publish({
     type: 'state',
