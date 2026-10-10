@@ -4,6 +4,8 @@ import argparse
 import json
 import os
 import sys
+import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,22 @@ from backend.workspace import (
     get_workspace_state,
     next_screenshot_path,
 )
+
+
+DEBUG_LOG_FILE = Path("/tmp/stubuddy/log")
+
+
+def _write_debug_error(error: Exception) -> None:
+    try:
+        DEBUG_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).isoformat()
+        trace = traceback.format_exc()
+        with DEBUG_LOG_FILE.open("a", encoding="utf-8") as log_file:
+            log_file.write(f"[{timestamp}] [python] {type(error).__name__}: {error}\n")
+            log_file.write(trace)
+            log_file.write("\n")
+    except OSError:
+        pass
 
 
 def _emit(payload: dict[str, Any]) -> None:
@@ -77,8 +95,10 @@ def main() -> int:
         _emit(result)
         return 0
     except WorkspaceError as error:
+        _write_debug_error(error)
         _emit({"ok": False, "code": error.code, "message": str(error)})
     except Exception as error:
+        _write_debug_error(error)
         _emit({"ok": False, "code": "BACKEND_ERROR", "message": str(error)})
     return 1
 

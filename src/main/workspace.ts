@@ -1,7 +1,7 @@
 import { spawn } from 'child_process'
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, shell } from 'electron'
-import { join } from 'path'
+import { dirname, join } from 'path'
 
 export interface WorkspaceState {
   targetFolder: string | null
@@ -34,6 +34,7 @@ export interface WorkspaceEvent {
 
 const SHORTCUT = 'Control+Alt+A'
 const CONFIG_FILE = 'workspace.json'
+const DEBUG_LOG_FILE = '/tmp/stubuddy/log'
 
 let mainWindow: BrowserWindow | null = null
 let state: WorkspaceState = {
@@ -43,6 +44,19 @@ let state: WorkspaceState = {
 }
 let captureInProgress = false
 let handlersRegistered = false
+
+function writeDebugError(context: string, error: unknown, details?: string): void {
+  try {
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error)
+    const entry = [`[${new Date().toISOString()}] [electron] ${context}`, message, details, '']
+      .filter((line) => line !== undefined)
+      .join('\n')
+    mkdirSync(dirname(DEBUG_LOG_FILE), { recursive: true })
+    appendFileSync(DEBUG_LOG_FILE, entry, 'utf8')
+  } catch {
+    // Temporary diagnostics must never break the user-facing action.
+  }
+}
 
 function configPath(): string {
   return join(app.getPath('userData'), CONFIG_FILE)
@@ -101,12 +115,27 @@ function runBackend(args: string[]): Promise<BackendResult> {
     child.stderr.on('data', (chunk: string) => {
       stderr += chunk
     })
-    child.on('error', (error) => reject(error))
-    child.on('close', () => {
+    child.on('error', (error) => {
+      writeDebugError('无法启动 Python 后端', error, `命令参数: ${args.join(' ')}`)
+      reject(error)
+    })
+    child.on('close', (exitCode) => {
       try {
         const result = JSON.parse(stdout.trim()) as BackendResult
+        if (!result.ok) {
+          writeDebugError(
+            'Python 后端返回错误',
+            result.message || result.code || '未知错误',
+            `退出码: ${exitCode}\n命令参数: ${args.join(' ')}\nstderr: ${stderr.trim()}`
+          )
+        }
         resolve(result)
-      } catch {
+      } catch (error) {
+        writeDebugError(
+          '无法解析 Python 后端输出',
+          error,
+          `退出码: ${exitCode}\n命令参数: ${args.join(' ')}\nstdout: ${stdout.trim()}\nstderr: ${stderr.trim()}`
+        )
         reject(new Error(stderr.trim() || 'Python 后端没有返回有效结果'))
       }
     })
@@ -225,6 +254,7 @@ function wrapAction(
       return await action()
     } catch (error) {
       const message = error instanceof Error ? error.message : '操作失败'
+      writeDebugError('工作区操作失败', error)
       publish({ type: 'error', state: currentState(), message })
       return { status: 'cancelled', state: currentState(), message }
     }
@@ -246,12 +276,16 @@ export async function initializeWorkspace(window: BrowserWindow): Promise<void> 
     await refreshState()
   } catch (error) {
     const message = error instanceof Error ? error.message : '无法读取工程状态'
+    writeDebugError('初始化工作区失败', error)
     publish({ type: 'error', state: currentState(), message })
   }
 
   state.shortcutAvailable = globalShortcut.register(SHORTCUT, () => {
     void wrapAction(capture)()
   })
+  if (!state.shortcutAvailable) {
+    writeDebugError('全局快捷键注册失败', `快捷键 ${SHORTCUT} 可能已被占用或门户拒绝`)
+  }
   publish({
     type: 'state',
     state: currentState(),
