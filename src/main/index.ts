@@ -4,18 +4,10 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { disposeWorkspace, initializeWorkspace, setWorkspaceWindow } from './workspace'
 
-const useXWaylandShortcutFallback =
-  process.platform === 'linux' &&
-  process.env.XDG_SESSION_TYPE === 'wayland' &&
-  process.env.XDG_CURRENT_DESKTOP?.toLowerCase().includes('gnome') &&
-  Boolean(process.env.DISPLAY)
-
-if (useXWaylandShortcutFallback) {
-  // Ubuntu 24.04's GNOME portal does not expose GlobalShortcuts; use X11 grabs instead.
-  app.commandLine.appendSwitch('ozone-platform', 'x11')
-  app.commandLine.appendSwitch('disable-features', 'GlobalShortcutsPortal')
-  app.disableHardwareAcceleration()
-} else if (process.platform === 'linux') {
+if (process.platform === 'linux') {
+  if (process.env.WAYLAND_DISPLAY) {
+    app.commandLine.appendSwitch('ozone-platform', 'wayland')
+  }
   app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal')
 }
 

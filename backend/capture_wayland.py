@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -15,6 +16,7 @@ PORTAL_BUS_NAME = "org.freedesktop.portal.Desktop"
 PORTAL_OBJECT_PATH = "/org/freedesktop/portal/desktop"
 SCREENSHOT_INTERFACE = "org.freedesktop.portal.Screenshot"
 REQUEST_INTERFACE = "org.freedesktop.portal.Request"
+DEBUG_LOG_FILE = Path("/tmp/stubuddy/log")
 PORTAL_INTROSPECTION = Node.parse(
     """
     <node>
@@ -42,7 +44,18 @@ REQUEST_INTROSPECTION = Node.parse(
 )
 
 
+def _write_debug(message: str) -> None:
+    try:
+        DEBUG_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).isoformat()
+        with DEBUG_LOG_FILE.open("a", encoding="utf-8") as log_file:
+            log_file.write(f"[{timestamp}] [python] Wayland 截图: {message}\n")
+    except OSError:
+        pass
+
+
 async def _request_screenshot() -> Path | None:
+    _write_debug("开始连接 Screenshot Portal")
     bus = await MessageBus().connect()
     try:
         if not bus.unique_name:
@@ -80,17 +93,20 @@ async def _request_screenshot() -> Path | None:
         )
         if request_path != expected_request_path:
             raise RuntimeError("Wayland 截图门户返回了非预期请求路径")
+        _write_debug(f"已创建请求 {request_path}，等待用户操作")
 
         try:
             response, results = await asyncio.wait_for(response_future, timeout=300)
         except TimeoutError as error:
             raise RuntimeError("等待 Wayland 截图门户响应超时") from error
         if response == 1:
+            _write_debug("用户取消截图")
             return None
         if response != 0 or "uri" not in results:
             raise RuntimeError("Wayland 截图门户未返回图像")
 
         uri = str(results["uri"].value)
+        _write_debug(f"门户返回图像 {uri}")
         parsed_uri = urlparse(uri)
         if parsed_uri.scheme != "file":
             raise RuntimeError("Wayland 截图门户返回了不支持的图像地址")
@@ -108,4 +124,5 @@ def capture_region(output_path: Path) -> bool:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(portal_image, output_path)
+    _write_debug(f"图像已保存到 {output_path}")
     return True
