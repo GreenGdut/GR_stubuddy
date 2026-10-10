@@ -1,6 +1,7 @@
 import { spawn } from 'child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, shell } from 'electron'
+import { homedir } from 'os'
 import { dirname, join } from 'path'
 
 export interface WorkspaceState {
@@ -36,6 +37,7 @@ const SHORTCUT = 'Control+Alt+A'
 const SHORTCUT_PROBE = 'Control+Alt+Shift+F11'
 const CONFIG_FILE = 'workspace.json'
 const DEBUG_LOG_FILE = '/tmp/stubuddy/log'
+const AGENT_CONTEXT_FILE = join(homedir(), '.stubuddy', 'agent-context.json')
 
 let mainWindow: BrowserWindow | null = null
 let state: WorkspaceState = {
@@ -77,6 +79,26 @@ function saveConfiguredTarget(targetFolder: string | null): void {
   const temporaryPath = `${path}.tmp`
   writeFileSync(temporaryPath, JSON.stringify({ targetFolder }, null, 2), 'utf8')
   renameSync(temporaryPath, path)
+}
+
+function saveAgentContext(): void {
+  try {
+    mkdirSync(dirname(AGENT_CONTEXT_FILE), { recursive: true, mode: 0o700 })
+    const temporaryPath = `${AGENT_CONTEXT_FILE}.tmp`
+    const context = {
+      schemaVersion: 1,
+      targetFolder: state.targetFolder,
+      currentProject: state.currentProject,
+      updatedAt: new Date().toISOString()
+    }
+    writeFileSync(temporaryPath, `${JSON.stringify(context, null, 2)}\n`, {
+      encoding: 'utf8',
+      mode: 0o600
+    })
+    renameSync(temporaryPath, AGENT_CONTEXT_FILE)
+  } catch (error) {
+    writeDebugError('无法更新 Agent 上下文', error, `目标文件: ${AGENT_CONTEXT_FILE}`)
+  }
 }
 
 function backendCommand(args: string[]): { command: string; args: string[] } {
@@ -150,6 +172,7 @@ function currentState(): WorkspaceState {
 function applyBackendState(nextState: Omit<WorkspaceState, 'shortcutAvailable'>): void {
   state = { ...nextState, shortcutAvailable: state.shortcutAvailable }
   saveConfiguredTarget(state.targetFolder)
+  saveAgentContext()
 }
 
 function backendError(result: BackendResult): Error {
@@ -264,6 +287,7 @@ function wrapAction(
 
 export async function initializeWorkspace(window: BrowserWindow): Promise<void> {
   mainWindow = window
+  saveAgentContext()
   if (!handlersRegistered) {
     ipcMain.handle('stubuddy:get-workspace-state', refreshState)
     ipcMain.handle('stubuddy:create-workspace', wrapAction(createWorkspace))

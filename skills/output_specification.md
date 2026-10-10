@@ -6,7 +6,34 @@ This specification governs model-generated answers to mathematics, physics, and 
 
 The input is normally an image containing problem text, formulas, function plots, circuit diagrams, or other visual information. The upstream system guarantees that input filenames conform to the naming convention in Section 2. Do not add defensive filename validation or rename inputs.
 
-## 2. Input and output filenames
+## 2. Output directory and filenames
+
+### Runtime output directory
+
+Before processing the input, read the Stubuddy agent context from `~/.stubuddy/agent-context.json`, where `~` is the current user's home directory. The Stubuddy application creates and updates this file automatically. Its schema is:
+
+```json
+{
+  "schemaVersion": 1,
+  "targetFolder": "<absolute path>/Target_Stubuddy",
+  "currentProject": "<absolute path>/Target_Stubuddy/ProjectNNN",
+  "updatedAt": "<ISO 8601 timestamp>"
+}
+```
+
+Use the non-null `currentProject` value as `CURRENT_PROJECT_DIR`. It is the absolute path to the numerically highest project directory known to the application under the user-selected `Target_Stubuddy` directory:
+
+```text
+<absolute path>/Target_Stubuddy/ProjectNNN
+```
+
+Here `ProjectNNN` matches `^Project[0-9]{3}$`; the application determines the highest project by comparing the three-digit sequence numerically. The model MUST NOT search the filesystem for `Target_Stubuddy`, infer its location from the repository, read any other application configuration to locate it, or select a different project directory.
+
+If the context file is missing or unreadable, `schemaVersion` is unsupported, `currentProject` is null, or the referenced directory does not exist, stop without creating deliverables. Do not fall back to filesystem-wide discovery.
+
+Write every generated `.tex` and `.svg` file directly into `CURRENT_PROJECT_DIR`. Do not create an additional output subdirectory. Paths outside `CURRENT_PROJECT_DIR` are not deliverables.
+
+### Input and output filenames
 
 Preserve the input file's complete basename (filename without its extension) exactly. Do not replace the `input_` prefix with `output_`.
 
@@ -73,6 +100,18 @@ The following JSON describes the deliverable contract. It is specification metad
     "basename_pattern": "^input_(?:[A-Za-z0-9]+_)*[0-9]+$",
     "filename_validation": "upstream_guaranteed"
   },
+  "output_directory": {
+    "context_manifest": "~/.stubuddy/agent-context.json",
+    "context_schema_version": 1,
+    "context_field": "currentProject",
+    "runtime_name": "CURRENT_PROJECT_DIR",
+    "path_shape": "<absolute path>/Target_Stubuddy/ProjectNNN",
+    "project_basename_pattern": "^Project[0-9]{3}$",
+    "selection": "numerically_highest_existing_project",
+    "resolved_by": "Stubuddy_application",
+    "filesystem_search_by_model": false,
+    "write_files_directly_into_directory": true
+  },
   "outputs": {
     "tex_count": 1,
     "tex_filename": "<input_basename>.tex",
@@ -105,7 +144,8 @@ The following JSON describes the deliverable contract. It is specification metad
 
 Before returning the files, confirm that:
 
-1. There is exactly one `.tex` file, named from the input basename.
-2. Each necessary SVG is a separate file, uses the required basename and consecutive numbering, and was generated with the required library for its content type.
-3. The `.tex` answer is concise Chinese LaTeX and contains no image embedding syntax, file paths, captions, or image descriptions beyond `如图`.
-4. No chat prose, internal reasoning, placeholder figure, PDF, or unrequested auxiliary file is included.
+1. `CURRENT_PROJECT_DIR` came from the `currentProject` field in `~/.stubuddy/agent-context.json`, and every deliverable was written directly into it with no output written elsewhere.
+2. There is exactly one `.tex` file, named from the input basename.
+3. Each necessary SVG is a separate file, uses the required basename and consecutive numbering, and was generated with the required library for its content type.
+4. The `.tex` answer is concise Chinese LaTeX and contains no image embedding syntax, file paths, captions, or image descriptions beyond `如图`.
+5. No chat prose, internal reasoning, placeholder figure, PDF, or unrequested auxiliary file is included.
