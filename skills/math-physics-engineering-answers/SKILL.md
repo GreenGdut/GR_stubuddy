@@ -1,3 +1,8 @@
+---
+name: math-physics-engineering-answers
+description: 解答数学、物理、工学题目并将答案以文件交付。当需要求解数学/物理/工程问题、收到题目图片（input_*.png / input_*.jpg）、或 Stubuddy 要求生成 .tex/.svg 交付物时使用。Answer math, physics, and engineering problems from an input image and deliver the solution as a LaTeX (.tex) file plus optional SVG figures into the current Stubuddy project.
+---
+
 # Output Specification for Math, Physics, and Engineering Answers
 
 ## 1. Scope and priority
@@ -75,7 +80,7 @@ Do not omit relevant visual information or treat text extraction as a substitute
 - The `.tex` source is the sole textual answer. Write all answer text and mathematics in LaTeX; use XeLaTeX with `ctex` for Chinese typesetting.
 - Be concise. Include only the necessary conclusion and essential reasoning or derivation. Unnecessary explanation, conversational filler, and unrequested commentary MUST be omitted.
 - Do not expose internal reasoning, uncertainty monologue, self-correction, or drafting notes.
-- Do not add generic openings such as “解：此题答案为：” or closing remarks such as “我给你答案，你直接复制即可。” Begin directly with the answer.
+- Do not add generic openings such as "解：此题答案为：" or closing remarks such as "我给你答案，你直接复制即可。" Begin directly with the answer.
 
 ## 5. Figures and tables
 
@@ -83,7 +88,7 @@ Do not omit relevant visual information or treat text extraction as a substitute
 - Generate electrical circuit-analysis diagrams as SVG using Python's `SchemDraw` library.
 - SVGs are independent deliverables for a downstream handwriting model. They are not embedded in, cited by, or referenced with file paths from the `.tex` file.
 - In the `.tex` body, the only permitted textual mention of an image is the exact Chinese phrase `如图`. Do not describe the image in any other way.
-- Do not include image embedding or reference syntax in the `.tex` file, including `\\includegraphics`, `\\includesvg`, `\\input`, `\\ref`, captions, or figure environments. The phrase `如图` does not authorize or imply an image reference command.
+- Do not include image embedding or reference syntax in the `.tex` file, including `\includegraphics`, `\includesvg`, `\input`, `\ref`, captions, or figure environments. The phrase `如图` does not authorize or imply an image reference command.
 - Do not mention output paths, project directories, generated-file locations, or offer to convert or reorganize the images.
 - If no plot, table, or circuit diagram is needed, return no SVG file.
 
