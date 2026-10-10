@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import uuid
 from datetime import datetime, timezone
@@ -54,8 +55,44 @@ def _write_debug(message: str) -> None:
         pass
 
 
+def _pictures_directory() -> Path:
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    user_dirs = config_home / "user-dirs.dirs"
+    try:
+        for line in user_dirs.read_text(encoding="utf-8").splitlines():
+            if line.startswith("XDG_PICTURES_DIR="):
+                value = line.split("=", 1)[1].strip().strip('"')
+                return Path(value.replace("$HOME", str(Path.home()), 1))
+    except OSError:
+        pass
+    return Path.home() / "Pictures"
+
+
+def _system_screenshot_files() -> dict[Path, int]:
+    screenshots_directory = _pictures_directory() / "Screenshots"
+    try:
+        return {
+            path: path.stat().st_mtime_ns
+            for path in screenshots_directory.glob("*.png")
+            if path.is_file()
+        }
+    except OSError:
+        return {}
+
+
+def _new_system_screenshot(previous_files: dict[Path, int]) -> Path | None:
+    current_files = _system_screenshot_files()
+    changed_files = [
+        path
+        for path, modified_time in current_files.items()
+        if previous_files.get(path) != modified_time
+    ]
+    return max(changed_files, key=lambda path: current_files[path], default=None)
+
+
 async def _request_screenshot() -> Path | None:
     _write_debug("开始连接 Screenshot Portal")
+    previous_system_screenshots = _system_screenshot_files()
     bus = await MessageBus().connect()
     try:
         if not bus.unique_name:
@@ -99,18 +136,23 @@ async def _request_screenshot() -> Path | None:
             response, results = await asyncio.wait_for(response_future, timeout=300)
         except TimeoutError as error:
             raise RuntimeError("等待 Wayland 截图门户响应超时") from error
+        _write_debug(f"门户响应码 {response}，字段 {sorted(results)}")
         if response == 1:
             _write_debug("用户取消截图")
             return None
-        if response != 0 or "uri" not in results:
-            raise RuntimeError("Wayland 截图门户未返回图像")
+        if "uri" in results:
+            uri = str(results["uri"].value)
+            _write_debug(f"门户返回图像 {uri}")
+            parsed_uri = urlparse(uri)
+            if parsed_uri.scheme != "file":
+                raise RuntimeError("Wayland 截图门户返回了不支持的图像地址")
+            return Path(unquote(parsed_uri.path))
 
-        uri = str(results["uri"].value)
-        _write_debug(f"门户返回图像 {uri}")
-        parsed_uri = urlparse(uri)
-        if parsed_uri.scheme != "file":
-            raise RuntimeError("Wayland 截图门户返回了不支持的图像地址")
-        return Path(unquote(parsed_uri.path))
+        fallback_image = _new_system_screenshot(previous_system_screenshots)
+        if fallback_image is not None:
+            _write_debug(f"门户未返回 URI，使用系统截图 {fallback_image}")
+            return fallback_image
+        raise RuntimeError("Wayland 截图门户未返回图像")
     finally:
         bus.disconnect()
 
