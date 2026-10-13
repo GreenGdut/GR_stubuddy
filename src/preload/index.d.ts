@@ -21,12 +21,36 @@ declare global {
     path?: string
   }
 
+  interface ReviewFile {
+    path: string
+    name: string
+    kind: 'image' | 'text' | 'unsupported'
+    size: number
+  }
+
+  interface ReviewProject {
+    name: string
+    path: string
+    files: ReviewFile[]
+  }
+
+  type ReviewFileContent =
+    | { kind: 'image'; dataUrl: string }
+    | {
+        kind: 'text'
+        content: string
+        truncated: boolean
+      }
+
   interface StubuddyAPI {
     getWorkspaceState: () => Promise<WorkspaceState>
     createWorkspace: () => Promise<WorkspaceActionResult>
     createProject: () => Promise<WorkspaceActionResult>
     capture: () => Promise<WorkspaceActionResult>
     openCurrentProject: () => Promise<WorkspaceActionResult>
+    openReviewDesk: () => Promise<WorkspaceActionResult>
+    getReviewFiles: () => Promise<ReviewProject>
+    readReviewFile: (path: string) => Promise<ReviewFileContent>
     onWorkspaceEvent: (callback: (event: WorkspaceEvent) => void) => () => void
   }
 

@@ -4,6 +4,8 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { disposeWorkspace, initializeWorkspace, setWorkspaceWindow } from './workspace'
 
+let reviewWindow: BrowserWindow | null = null
+
 if (process.platform === 'linux') {
   if (process.env.WAYLAND_DISPLAY) {
     app.commandLine.appendSwitch('ozone-platform', 'wayland')
@@ -45,6 +47,49 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
+function openReviewWindow(): void {
+  if (reviewWindow && !reviewWindow.isDestroyed()) {
+    reviewWindow.reload()
+    reviewWindow.show()
+    reviewWindow.focus()
+    return
+  }
+
+  reviewWindow = new BrowserWindow({
+    width: 1120,
+    height: 760,
+    minWidth: 720,
+    minHeight: 520,
+    show: false,
+    autoHideMenuBar: true,
+    title: '审阅台',
+    ...(process.platform === 'linux' ? { icon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  reviewWindow.on('ready-to-show', () => reviewWindow?.show())
+  reviewWindow.on('closed', () => {
+    reviewWindow = null
+  })
+  reviewWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    const reviewUrl = new URL(process.env['ELECTRON_RENDERER_URL'])
+    reviewUrl.searchParams.set('view', 'review')
+    reviewWindow.loadURL(reviewUrl.toString())
+  } else {
+    reviewWindow.loadFile(join(__dirname, '../renderer/index.html'), {
+      query: { view: 'review' }
+    })
+  }
+}
+
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
@@ -60,7 +105,7 @@ app.whenReady().then(() => {
   })
 
   const mainWindow = createWindow()
-  void initializeWorkspace(mainWindow)
+  void initializeWorkspace(mainWindow, openReviewWindow)
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the

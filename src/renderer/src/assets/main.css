@@ -1,4 +1,5 @@
 @import './base.css';
+@import './review.css';
 
 body {
   min-width: 320px;

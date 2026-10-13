@@ -51,6 +51,10 @@ function openCurrentProject(): void {
   void runAction(window.api.openCurrentProject)
 }
 
+function openReviewDesk(): void {
+  void runAction(window.api.openReviewDesk)
+}
+
 onMounted(async () => {
   removeWorkspaceListener = window.api.onWorkspaceEvent((event) => {
     workspace.value = event.state
@@ -130,7 +134,12 @@ onBeforeUnmount(() => removeWorkspaceListener?.())
         <span class="card-arrow" aria-hidden="true">↗</span>
       </button>
 
-      <button class="workspace-card workspace-card--review" type="button">
+      <button
+        class="workspace-card workspace-card--review"
+        type="button"
+        :disabled="busy"
+        @click="openReviewDesk"
+      >
         <span class="card-index">03</span>
         <span class="review-rule" aria-hidden="true"></span>
         <span class="card-content">

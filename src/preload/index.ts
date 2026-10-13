@@ -21,6 +21,27 @@ interface WorkspaceEvent {
   path?: string
 }
 
+interface ReviewFile {
+  path: string
+  name: string
+  kind: 'image' | 'text' | 'unsupported'
+  size: number
+}
+
+interface ReviewProject {
+  name: string
+  path: string
+  files: ReviewFile[]
+}
+
+type ReviewFileContent =
+  | { kind: 'image'; dataUrl: string }
+  | {
+      kind: 'text'
+      content: string
+      truncated: boolean
+    }
+
 const api = {
   getWorkspaceState: (): Promise<WorkspaceState> =>
     ipcRenderer.invoke('stubuddy:get-workspace-state'),
@@ -31,6 +52,11 @@ const api = {
   capture: (): Promise<WorkspaceActionResult> => ipcRenderer.invoke('stubuddy:capture'),
   openCurrentProject: (): Promise<WorkspaceActionResult> =>
     ipcRenderer.invoke('stubuddy:open-current-project'),
+  openReviewDesk: (): Promise<WorkspaceActionResult> =>
+    ipcRenderer.invoke('stubuddy:open-review-desk'),
+  getReviewFiles: (): Promise<ReviewProject> => ipcRenderer.invoke('stubuddy:get-review-files'),
+  readReviewFile: (path: string): Promise<ReviewFileContent> =>
+    ipcRenderer.invoke('stubuddy:read-review-file', path),
   onWorkspaceEvent: (callback: (event: WorkspaceEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, event: WorkspaceEvent): void =>
       callback(event)

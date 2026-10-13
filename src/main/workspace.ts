@@ -1,8 +1,22 @@
 import { spawn } from 'child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  writeFileSync
+} from 'fs'
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, shell } from 'electron'
 import { homedir } from 'os'
-import { dirname, join } from 'path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'path'
 
 export interface WorkspaceState {
   targetFolder: string | null
@@ -33,11 +47,81 @@ export interface WorkspaceEvent {
   path?: string
 }
 
+export interface ReviewFile {
+  path: string
+  name: string
+  kind: 'image' | 'text' | 'unsupported'
+  size: number
+}
+
+export interface ReviewProject {
+  name: string
+  path: string
+  files: ReviewFile[]
+}
+
+export type ReviewFileContent =
+  | { kind: 'image'; dataUrl: string }
+  | {
+      kind: 'text'
+      content: string
+      truncated: boolean
+    }
+
 const SHORTCUT = 'Control+Alt+A'
 const SHORTCUT_PROBE = 'Control+Alt+Shift+F11'
 const CONFIG_FILE = 'workspace.json'
 const DEBUG_LOG_FILE = '/tmp/stubuddy/log'
 const AGENT_CONTEXT_FILE = join(homedir(), '.stubuddy', 'agent-context.json')
+const MAX_TEXT_PREVIEW_BYTES = 2 * 1024 * 1024
+const MAX_IMAGE_PREVIEW_BYTES = 25 * 1024 * 1024
+const IMAGE_MIME_TYPES: Record<string, string> = {
+  '.avif': 'image/avif',
+  '.bmp': 'image/bmp',
+  '.gif': 'image/gif',
+  '.ico': 'image/x-icon',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp'
+}
+const TEXT_EXTENSIONS = new Set([
+  '',
+  '.bat',
+  '.c',
+  '.cc',
+  '.conf',
+  '.cpp',
+  '.css',
+  '.csv',
+  '.env',
+  '.h',
+  '.hpp',
+  '.html',
+  '.ini',
+  '.java',
+  '.js',
+  '.json',
+  '.jsonc',
+  '.jsx',
+  '.log',
+  '.md',
+  '.mjs',
+  '.py',
+  '.rst',
+  '.sh',
+  '.sql',
+  '.tex',
+  '.toml',
+  '.ts',
+  '.tsx',
+  '.txt',
+  '.vue',
+  '.xml',
+  '.yaml',
+  '.yml'
+])
 
 let mainWindow: BrowserWindow | null = null
 let state: WorkspaceState = {
@@ -47,6 +131,7 @@ let state: WorkspaceState = {
 }
 let captureInProgress = false
 let handlersRegistered = false
+let showReviewWindow: (() => void) | null = null
 
 function writeDebugError(context: string, error: unknown, details?: string): void {
   try {
@@ -179,6 +264,96 @@ function backendError(result: BackendResult): Error {
   return new Error(result.message || 'Python 后端操作失败')
 }
 
+function reviewFileKind(path: string): ReviewFile['kind'] {
+  const extension = extname(path).toLowerCase()
+  if (IMAGE_MIME_TYPES[extension]) return 'image'
+  if (TEXT_EXTENSIONS.has(extension)) return 'text'
+  return 'unsupported'
+}
+
+function requireCurrentProject(): string {
+  if (!state.currentProject) throw new Error('请先创建工程')
+  return state.currentProject
+}
+
+function resolveReviewFile(relativePath: string): string {
+  const project = realpathSync(requireCurrentProject())
+  if (!relativePath || isAbsolute(relativePath)) throw new Error('无效的文件路径')
+
+  const candidate = resolve(project, relativePath)
+  const pathFromProject = relative(project, candidate)
+  if (pathFromProject === '..' || pathFromProject.startsWith(`..${sep}`)) {
+    throw new Error('文件不在当前工程内')
+  }
+  if (lstatSync(candidate).isSymbolicLink()) throw new Error('不支持预览符号链接')
+
+  const realCandidate = realpathSync(candidate)
+  const realPathFromProject = relative(project, realCandidate)
+  if (realPathFromProject === '..' || realPathFromProject.startsWith(`..${sep}`)) {
+    throw new Error('文件不在当前工程内')
+  }
+  if (!statSync(realCandidate).isFile()) throw new Error('所选项目不是文件')
+  return realCandidate
+}
+
+function getReviewFiles(): ReviewProject {
+  const project = realpathSync(requireCurrentProject())
+  const files: ReviewFile[] = []
+
+  function visit(folder: string): void {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      const absolutePath = join(folder, entry.name)
+      if (entry.isSymbolicLink()) continue
+      if (entry.isDirectory()) {
+        visit(absolutePath)
+      } else if (entry.isFile()) {
+        const path = relative(project, absolutePath)
+        files.push({
+          path,
+          name: entry.name,
+          kind: reviewFileKind(path),
+          size: statSync(absolutePath).size
+        })
+      }
+    }
+  }
+
+  visit(project)
+  files.sort((left, right) =>
+    left.path.localeCompare(right.path, undefined, { numeric: true, sensitivity: 'base' })
+  )
+  return { name: basename(project), path: project, files }
+}
+
+function readReviewFile(relativePath: string): ReviewFileContent {
+  const path = resolveReviewFile(relativePath)
+  const kind = reviewFileKind(path)
+  const size = statSync(path).size
+
+  if (kind === 'image') {
+    if (size > MAX_IMAGE_PREVIEW_BYTES) throw new Error('图片超过 25 MB，无法在审阅台中预览')
+    const mimeType = IMAGE_MIME_TYPES[extname(path).toLowerCase()]
+    return { kind, dataUrl: `data:${mimeType};base64,${readFileSync(path).toString('base64')}` }
+  }
+  if (kind === 'text') {
+    const previewSize = Math.min(size, MAX_TEXT_PREVIEW_BYTES)
+    const buffer = Buffer.alloc(previewSize)
+    const descriptor = openSync(path, 'r')
+    let bytesRead = 0
+    try {
+      bytesRead = readSync(descriptor, buffer, 0, previewSize, 0)
+    } finally {
+      closeSync(descriptor)
+    }
+    return {
+      kind,
+      content: buffer.subarray(0, bytesRead).toString('utf8'),
+      truncated: size > MAX_TEXT_PREVIEW_BYTES
+    }
+  }
+  throw new Error('此文件类型暂不支持预览')
+}
+
 function publish(event: WorkspaceEvent): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('stubuddy:workspace-event', event)
@@ -270,6 +445,15 @@ async function openCurrentProject(): Promise<WorkspaceActionResult> {
   return { status: 'success', state: currentState() }
 }
 
+async function openReviewDesk(): Promise<WorkspaceActionResult> {
+  if (!state.currentProject) {
+    return { status: 'cancelled', state: currentState(), message: '请先创建工程' }
+  }
+  if (!showReviewWindow) throw new Error('审阅窗口尚未就绪')
+  showReviewWindow()
+  return { status: 'success', state: currentState() }
+}
+
 function wrapAction(
   action: () => Promise<WorkspaceActionResult>
 ): () => Promise<WorkspaceActionResult> {
@@ -285,8 +469,12 @@ function wrapAction(
   }
 }
 
-export async function initializeWorkspace(window: BrowserWindow): Promise<void> {
+export async function initializeWorkspace(
+  window: BrowserWindow,
+  openReviewWindow: () => void
+): Promise<void> {
   mainWindow = window
+  showReviewWindow = openReviewWindow
   saveAgentContext()
   if (!handlersRegistered) {
     ipcMain.handle('stubuddy:get-workspace-state', refreshState)
@@ -294,6 +482,9 @@ export async function initializeWorkspace(window: BrowserWindow): Promise<void> 
     ipcMain.handle('stubuddy:create-project', wrapAction(createProject))
     ipcMain.handle('stubuddy:capture', wrapAction(capture))
     ipcMain.handle('stubuddy:open-current-project', wrapAction(openCurrentProject))
+    ipcMain.handle('stubuddy:open-review-desk', wrapAction(openReviewDesk))
+    ipcMain.handle('stubuddy:get-review-files', getReviewFiles)
+    ipcMain.handle('stubuddy:read-review-file', (_event, path: string) => readReviewFile(path))
     handlersRegistered = true
   }
 
