@@ -21,6 +21,15 @@
 - `npm run format` rewrites the whole repository; do not use it as a format-check command. `npm run lint` may create the ignored `.eslintcache` file.
 - Keep the committed Electron download mirrors in `.npmrc` unless explicitly asked to change them.
 
+## Version Control
+
+- Keep this project under Git and commit deliberately; do not leave finished work uncommitted.
+- Commit each small, self-contained feature or fix as soon as it works and passes verification.
+- Make a commit only after `npm run lint` and `npm run typecheck` pass for the changed layers.
+- Use clear, scoped commit messages that describe one change; keep unrelated edits out of the same commit.
+- Never commit `out/`, `dist/`, `.venv/`, `python-dist/`, `.python-build/`, `node_modules/`, or any file listed in `.gitignore`.
+- Do not push, amend published history, or create tags unless explicitly asked.
+
 ## Process Boundaries
 
 - `src/main/index.ts` owns Electron lifecycle and windows; workspace IPC and Python process orchestration live in `src/main/workspace.ts`.
