@@ -46,6 +46,8 @@ declare global {
     path: string
   }
 
+  type ReviewSaveMode = 'copy' | 'overwrite'
+
   interface StubuddyAPI {
     getWorkspaceState: () => Promise<WorkspaceState>
     createWorkspace: () => Promise<WorkspaceActionResult>
@@ -55,7 +57,11 @@ declare global {
     openReviewDesk: () => Promise<WorkspaceActionResult>
     getReviewFiles: () => Promise<ReviewProject>
     readReviewFile: (path: string) => Promise<ReviewFileContent>
-    writeReviewImage: (path: string, dataUrl: string) => Promise<ReviewFileWriteResult>
+    writeReviewImage: (
+      path: string,
+      dataUrl: string,
+      mode: ReviewSaveMode
+    ) => Promise<ReviewFileWriteResult>
     renameReviewFile: (path: string, nextName: string) => Promise<ReviewFileWriteResult>
     onWorkspaceEvent: (callback: (event: WorkspaceEvent) => void) => () => void
   }

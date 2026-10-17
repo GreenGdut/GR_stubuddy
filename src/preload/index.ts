@@ -46,6 +46,8 @@ interface ReviewFileWriteResult {
   path: string
 }
 
+type ReviewSaveMode = 'copy' | 'overwrite'
+
 const api = {
   getWorkspaceState: (): Promise<WorkspaceState> =>
     ipcRenderer.invoke('stubuddy:get-workspace-state'),
@@ -61,8 +63,12 @@ const api = {
   getReviewFiles: (): Promise<ReviewProject> => ipcRenderer.invoke('stubuddy:get-review-files'),
   readReviewFile: (path: string): Promise<ReviewFileContent> =>
     ipcRenderer.invoke('stubuddy:read-review-file', path),
-  writeReviewImage: (path: string, dataUrl: string): Promise<ReviewFileWriteResult> =>
-    ipcRenderer.invoke('stubuddy:write-review-image', path, dataUrl),
+  writeReviewImage: (
+    path: string,
+    dataUrl: string,
+    mode: ReviewSaveMode
+  ): Promise<ReviewFileWriteResult> =>
+    ipcRenderer.invoke('stubuddy:write-review-image', path, dataUrl, mode),
   renameReviewFile: (path: string, nextName: string): Promise<ReviewFileWriteResult> =>
     ipcRenderer.invoke('stubuddy:rename-review-file', path, nextName),
   onWorkspaceEvent: (callback: (event: WorkspaceEvent) => void): (() => void) => {

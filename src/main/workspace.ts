@@ -72,6 +72,8 @@ export interface ReviewFileWriteResult {
   path: string
 }
 
+export type ReviewSaveMode = 'copy' | 'overwrite'
+
 const SHORTCUT = 'Control+Alt+A'
 const SHORTCUT_PROBE = 'Control+Alt+Shift+F11'
 const CONFIG_FILE = 'workspace.json'
@@ -361,7 +363,11 @@ function readReviewFile(relativePath: string): ReviewFileContent {
   throw new Error('此文件类型暂不支持预览')
 }
 
-function writeReviewImage(relativePath: string, dataUrl: string): ReviewFileWriteResult {
+function writeReviewImage(
+  relativePath: string,
+  dataUrl: string,
+  mode: ReviewSaveMode
+): ReviewFileWriteResult {
   const sourcePath = resolveReviewFile(relativePath)
   const extension = extname(sourcePath).toLowerCase()
   if (!EDITABLE_IMAGE_EXTENSIONS.has(extension)) {
@@ -375,13 +381,16 @@ function writeReviewImage(relativePath: string, dataUrl: string): ReviewFileWrit
   if (buffer.length > MAX_IMAGE_PREVIEW_BYTES) throw new Error('编辑结果超过 25 MB，无法保存')
 
   const project = realpathSync(requireCurrentProject())
-  const directory = dirname(sourcePath)
-  const base = basename(sourcePath, extname(sourcePath))
-  let targetPath = join(directory, `${base}${EDIT_IMAGE_SUFFIX}${extension}`)
-  let counter = 2
-  while (existsSync(targetPath)) {
-    targetPath = join(directory, `${base}${EDIT_IMAGE_SUFFIX}_${counter}${extension}`)
-    counter += 1
+  let targetPath = sourcePath
+  if (mode !== 'overwrite') {
+    const directory = dirname(sourcePath)
+    const base = basename(sourcePath, extname(sourcePath))
+    targetPath = join(directory, `${base}${EDIT_IMAGE_SUFFIX}${extension}`)
+    let counter = 2
+    while (existsSync(targetPath)) {
+      targetPath = join(directory, `${base}${EDIT_IMAGE_SUFFIX}_${counter}${extension}`)
+      counter += 1
+    }
   }
 
   writeFileSync(targetPath, buffer)
@@ -541,8 +550,10 @@ export async function initializeWorkspace(
     ipcMain.handle('stubuddy:open-review-desk', wrapAction(openReviewDesk))
     ipcMain.handle('stubuddy:get-review-files', getReviewFiles)
     ipcMain.handle('stubuddy:read-review-file', (_event, path: string) => readReviewFile(path))
-    ipcMain.handle('stubuddy:write-review-image', (_event, path: string, dataUrl: string) =>
-      writeReviewImage(path, dataUrl)
+    ipcMain.handle(
+      'stubuddy:write-review-image',
+      (_event, path: string, dataUrl: string, mode: ReviewSaveMode) =>
+        writeReviewImage(path, dataUrl, mode)
     )
     ipcMain.handle('stubuddy:rename-review-file', (_event, path: string, nextName: string) =>
       renameReviewFile(path, nextName)

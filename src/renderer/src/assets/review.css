@@ -254,6 +254,24 @@
   color: #ffffff;
 }
 
+.review-action.is-danger {
+  border-color: var(--color-red-dark);
+  background: var(--color-red-dark);
+  color: #ffffff;
+}
+
+.review-action.is-danger:hover:not(:disabled) {
+  border-color: var(--color-ink);
+  background: var(--color-ink);
+  color: #ffffff;
+}
+
+.review-confirm-text {
+  color: var(--color-red-dark);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .review-action:disabled {
   opacity: 0.4;
   cursor: default;

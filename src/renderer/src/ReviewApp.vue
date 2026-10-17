@@ -14,6 +14,7 @@ const loading = ref(true)
 const error = ref('')
 const notice = ref('')
 const saving = ref(false)
+const confirmingOverwrite = ref(false)
 const renaming = ref(false)
 const renameValue = ref('')
 const cropMode = ref(false)
@@ -90,6 +91,7 @@ function resetEdits(): void {
   cropMode.value = false
   cropRect.value = null
   dragStart = null
+  confirmingOverwrite.value = false
   removeDragListeners()
 }
 
@@ -289,24 +291,25 @@ async function applyCropAsync(): Promise<void> {
   }
 }
 
-function saveEdits(): void {
-  void saveEditsAsync()
+function saveEdits(mode: 'copy' | 'overwrite'): void {
+  void saveEditsAsync(mode)
 }
 
-async function saveEditsAsync(): Promise<void> {
+async function saveEditsAsync(mode: 'copy' | 'overwrite'): Promise<void> {
   const file = currentFile.value
   if (!file || !editCanvas) return
   saving.value = true
   notice.value = ''
   try {
     const dataUrl = editCanvas.toDataURL(imageMime.value)
-    const result = await window.api.writeReviewImage(file.path, dataUrl)
+    const result = await window.api.writeReviewImage(file.path, dataUrl, mode)
     await reloadAndSelect(result.path)
-    notice.value = `已另存为 ${result.path}`
+    notice.value = mode === 'overwrite' ? `已覆盖保存 ${result.path}` : `已另存为 ${result.path}`
   } catch (saveError) {
     notice.value = saveError instanceof Error ? saveError.message : '保存失败'
   } finally {
     saving.value = false
+    confirmingOverwrite.value = false
   }
 }
 
@@ -473,17 +476,51 @@ onBeforeUnmount(() => {
                 裁剪
               </button>
               <template v-if="hasEdits">
-                <button
-                  type="button"
-                  class="review-action is-primary"
-                  :disabled="saving"
-                  @click="saveEdits"
-                >
-                  {{ saving ? '保存中…' : '保存副本' }}
-                </button>
-                <button type="button" class="review-action" :disabled="saving" @click="resetEdits">
-                  放弃编辑
-                </button>
+                <template v-if="confirmingOverwrite">
+                  <span class="review-confirm-text">覆盖原文件？</span>
+                  <button
+                    type="button"
+                    class="review-action is-danger"
+                    :disabled="saving"
+                    @click="saveEdits('overwrite')"
+                  >
+                    确认覆盖
+                  </button>
+                  <button
+                    type="button"
+                    class="review-action"
+                    :disabled="saving"
+                    @click="confirmingOverwrite = false"
+                  >
+                    取消
+                  </button>
+                </template>
+                <template v-else>
+                  <button
+                    type="button"
+                    class="review-action"
+                    :disabled="saving"
+                    @click="confirmingOverwrite = true"
+                  >
+                    覆盖保存
+                  </button>
+                  <button
+                    type="button"
+                    class="review-action is-primary"
+                    :disabled="saving"
+                    @click="saveEdits('copy')"
+                  >
+                    {{ saving ? '保存中…' : '另存副本' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="review-action"
+                    :disabled="saving"
+                    @click="resetEdits"
+                  >
+                    放弃编辑
+                  </button>
+                </template>
               </template>
             </template>
             <span v-if="currentFile" class="review-size">{{ formatSize(currentFile.size) }}</span>
