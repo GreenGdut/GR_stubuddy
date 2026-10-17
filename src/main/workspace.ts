@@ -68,6 +68,10 @@ export type ReviewFileContent =
       truncated: boolean
     }
 
+export interface ReviewFileWriteResult {
+  path: string
+}
+
 const SHORTCUT = 'Control+Alt+A'
 const SHORTCUT_PROBE = 'Control+Alt+Shift+F11'
 const CONFIG_FILE = 'workspace.json'
@@ -75,6 +79,9 @@ const DEBUG_LOG_FILE = '/tmp/stubuddy/log'
 const AGENT_CONTEXT_FILE = join(homedir(), '.stubuddy', 'agent-context.json')
 const MAX_TEXT_PREVIEW_BYTES = 2 * 1024 * 1024
 const MAX_IMAGE_PREVIEW_BYTES = 25 * 1024 * 1024
+const EDIT_IMAGE_SUFFIX = '_edit'
+const EDITABLE_IMAGE_EXTENSIONS = new Set(['.jpeg', '.jpg', '.png', '.webp'])
+const EDIT_IMAGE_DATA_URL = /^data:image\/([a-z0-9.+-]+);base64,([a-z0-9+/=\s]+)$/i
 const IMAGE_MIME_TYPES: Record<string, string> = {
   '.avif': 'image/avif',
   '.bmp': 'image/bmp',
@@ -354,6 +361,55 @@ function readReviewFile(relativePath: string): ReviewFileContent {
   throw new Error('此文件类型暂不支持预览')
 }
 
+function writeReviewImage(relativePath: string, dataUrl: string): ReviewFileWriteResult {
+  const sourcePath = resolveReviewFile(relativePath)
+  const extension = extname(sourcePath).toLowerCase()
+  if (!EDITABLE_IMAGE_EXTENSIONS.has(extension)) {
+    throw new Error('该图片格式暂不支持编辑，仅支持 PNG / JPEG / WebP')
+  }
+
+  const match = EDIT_IMAGE_DATA_URL.exec(dataUrl.trim())
+  if (!match) throw new Error('无效的图片数据')
+  const buffer = Buffer.from(match[2].replace(/\s+/g, ''), 'base64')
+  if (buffer.length === 0) throw new Error('图片数据为空')
+  if (buffer.length > MAX_IMAGE_PREVIEW_BYTES) throw new Error('编辑结果超过 25 MB，无法保存')
+
+  const project = realpathSync(requireCurrentProject())
+  const directory = dirname(sourcePath)
+  const base = basename(sourcePath, extname(sourcePath))
+  let targetPath = join(directory, `${base}${EDIT_IMAGE_SUFFIX}${extension}`)
+  let counter = 2
+  while (existsSync(targetPath)) {
+    targetPath = join(directory, `${base}${EDIT_IMAGE_SUFFIX}_${counter}${extension}`)
+    counter += 1
+  }
+
+  writeFileSync(targetPath, buffer)
+  return { path: relative(project, targetPath) }
+}
+
+function renameReviewFile(relativePath: string, nextName: string): ReviewFileWriteResult {
+  const sourcePath = resolveReviewFile(relativePath)
+  const project = realpathSync(requireCurrentProject())
+  const trimmed = nextName.trim()
+  if (!trimmed) throw new Error('文件名不能为空')
+  if (trimmed.includes('/') || trimmed.includes('\\')) throw new Error('文件名不能包含路径分隔符')
+  if ([...trimmed].some((char) => char.charCodeAt(0) < 0x20)) {
+    throw new Error('文件名不能包含控制字符')
+  }
+  if (trimmed === '.' || trimmed === '..') throw new Error('无效的文件名')
+
+  const extension = extname(sourcePath)
+  const nextBase = basename(trimmed, extname(trimmed))
+  if (!nextBase || nextBase === '.' || nextBase === '..') throw new Error('文件名不能为空')
+  const targetPath = resolve(dirname(sourcePath), `${nextBase}${extension}`)
+  if (targetPath === sourcePath) return { path: relative(project, sourcePath) }
+  if (existsSync(targetPath)) throw new Error('同名文件已存在，请换一个名字')
+
+  renameSync(sourcePath, targetPath)
+  return { path: relative(project, targetPath) }
+}
+
 function publish(event: WorkspaceEvent): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('stubuddy:workspace-event', event)
@@ -485,6 +541,12 @@ export async function initializeWorkspace(
     ipcMain.handle('stubuddy:open-review-desk', wrapAction(openReviewDesk))
     ipcMain.handle('stubuddy:get-review-files', getReviewFiles)
     ipcMain.handle('stubuddy:read-review-file', (_event, path: string) => readReviewFile(path))
+    ipcMain.handle('stubuddy:write-review-image', (_event, path: string, dataUrl: string) =>
+      writeReviewImage(path, dataUrl)
+    )
+    ipcMain.handle('stubuddy:rename-review-file', (_event, path: string, nextName: string) =>
+      renameReviewFile(path, nextName)
+    )
     handlersRegistered = true
   }
 

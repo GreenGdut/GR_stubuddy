@@ -42,6 +42,10 @@ declare global {
         truncated: boolean
       }
 
+  interface ReviewFileWriteResult {
+    path: string
+  }
+
   interface StubuddyAPI {
     getWorkspaceState: () => Promise<WorkspaceState>
     createWorkspace: () => Promise<WorkspaceActionResult>
@@ -51,6 +55,8 @@ declare global {
     openReviewDesk: () => Promise<WorkspaceActionResult>
     getReviewFiles: () => Promise<ReviewProject>
     readReviewFile: (path: string) => Promise<ReviewFileContent>
+    writeReviewImage: (path: string, dataUrl: string) => Promise<ReviewFileWriteResult>
+    renameReviewFile: (path: string, nextName: string) => Promise<ReviewFileWriteResult>
     onWorkspaceEvent: (callback: (event: WorkspaceEvent) => void) => () => void
   }
 
